@@ -8,7 +8,7 @@
 #include <iostream>
 #include <list>
 
-#define DEBUG_TYPE "cheetah::boundscheck"
+#define DEBUG_TYPE "mine"
 
 using namespace llvm;
 
@@ -34,8 +34,6 @@ public:
       dbgs().write_escaped(F.getName()) << "'\n";
     });
 
-    std::cout << "I m into the function" << std::endl;
-
     // Instantiate the assert function once per module
     if (Assert == nullptr || Assert->getParent() != F.getParent())
       Assert = getAssertFunction(F.getParent());
@@ -54,9 +52,17 @@ public:
     // Process any GEP instructions
     bool Changed = false;
     for (auto *GEP : WorkList) {
-      LLVM_DEBUG(dbgs() << "BoundsCheck: found a GEP, " << *GEP << "\n");
+      LLVM_DEBUG(dbgs() << "\nBoundsCheck: found a GEP: " << *GEP << "\n");
+    
+      //TODO - find a way to find the array size
 
-      // TODO: implement this
+      /* check if the index to be assigned is a constant */
+      if (GEP->hasAllConstantIndices()){
+        LLVM_DEBUG({dbgs() << "This GEP is composed of constant indices only\n"; });
+        auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()));
+        auto index = constantInt->getZExtValue();
+        LLVM_DEBUG({dbgs() << index << " is the assigned index\n"; });
+      }
     }
 
     return Changed;
