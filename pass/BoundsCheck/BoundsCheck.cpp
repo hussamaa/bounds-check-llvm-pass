@@ -34,6 +34,8 @@ public:
       dbgs().write_escaped(F.getName()) << "'\n";
     });
 
+  // m_dl = F.getParent().getDataLayout();
+
     // Instantiate the assert function once per module
     if (Assert == nullptr || Assert->getParent() != F.getParent())
       Assert = getAssertFunction(F.getParent());
@@ -50,22 +52,40 @@ public:
     }
 
     // Process any GEP instructions
-    bool Changed = false;
+    bool changed = false;
     for (auto *GEP : WorkList) {
-      LLVM_DEBUG(dbgs() << "\nBoundsCheck: found a GEP: " << *GEP << "\n");
+      LLVM_DEBUG(dbgs() << "\nGEP instruction: " << *GEP << "\n");
     
-      //TODO - find a way to find the array size
+      auto arrayLength = -1;
+      auto desiredIndex = -1;
+
+      /* retrieve the number of elements in the array */
+      if (auto *pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
+        if (auto *arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())){
+          arrayLength = arrayElementType->getArrayNumElements();
+          LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
+        }
+        // XXX check the behaviour for dynamic alocated structures, matrices and so on (later)
+      }
 
       /* check if the index to be assigned is a constant */
       if (GEP->hasAllConstantIndices()){
-        LLVM_DEBUG({dbgs() << "This GEP is composed of constant indices only\n"; });
+        LLVM_DEBUG({dbgs() << "GEP is composed of constant indices only\n"; });
         auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()));
-        auto index = constantInt->getZExtValue();
-        LLVM_DEBUG({dbgs() << index << " is the assigned index\n"; });
+        desiredIndex = constantInt->getZExtValue();
+        LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       }
+
+      if (arrayLength >=0 && desiredIndex >=0 ){
+        // TODO - perform the analysis
+      } else { 
+        // TODO - unable to perform the analysis (more info needed)
+      }
+
+      LLVM_DEBUG({dbgs() << "\n"; });
     }
 
-    return Changed;
+    return changed;
   }
 
 private:
