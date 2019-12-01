@@ -12,6 +12,10 @@ build/libLLVMBoundsCheck.so: pass/BoundsCheck/BoundsCheck.cpp
 #
 # Other
 #
+.PHONY: regression
+regression:
+	make && ./run-regression.sh
+
 
 .PHONY: clean
 clean:

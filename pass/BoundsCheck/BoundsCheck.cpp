@@ -82,7 +82,7 @@ public:
       // check if both components (array size and desired index) were retrived from the byte code and make the analysis 
       if (arrayLength >=0 && desiredIndex >=0){
         if (desiredIndex >= arrayLength){
-          report_fatal_error(stringFormat("Wrong assignment to index %d while array has length %d! Aborting...", desiredIndex, arrayLength), false);
+          report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
         } else {
           LLVM_DEBUG({dbgs() << "GEP instruction uses the correct bounds [DONE]\n"; });
         }
