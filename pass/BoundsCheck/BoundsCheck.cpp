@@ -7,6 +7,10 @@
 
 #include <iostream>
 #include <list>
+#include <vector>
+#include <string>
+#include <cstdarg>
+#include <cstring>
 
 #define DEBUG_TYPE "mine"
 
@@ -34,7 +38,7 @@ public:
       dbgs().write_escaped(F.getName()) << "'\n";
     });
 
-  // m_dl = F.getParent().getDataLayout();
+    //m_dl = F.getParent().getDataLayout();
 
     // Instantiate the assert function once per module
     if (Assert == nullptr || Assert->getParent() != F.getParent())
@@ -55,11 +59,10 @@ public:
     bool changed = false;
     for (auto *GEP : WorkList) {
       LLVM_DEBUG(dbgs() << "\nGEP instruction: " << *GEP << "\n");
-    
       auto arrayLength = -1;
       auto desiredIndex = -1;
 
-      /* retrieve the number of elements in the array */
+      // retrieve the number of elements in the array
       if (auto *pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
         if (auto *arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())){
           arrayLength = arrayElementType->getArrayNumElements();
@@ -68,7 +71,7 @@ public:
         // XXX check the behaviour for dynamic alocated structures, matrices and so on (later)
       }
 
-      /* check if the index to be assigned is a constant */
+      // check if the index to be assigned is a constant and retrieve the index 
       if (GEP->hasAllConstantIndices()){
         LLVM_DEBUG({dbgs() << "GEP is composed of constant indices only\n"; });
         auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()));
@@ -76,10 +79,15 @@ public:
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       }
 
-      if (arrayLength >=0 && desiredIndex >=0 ){
-        // TODO - perform the analysis
+      // check if both components (array size and desired index) were retrived from the byte code and make the analysis 
+      if (arrayLength >=0 && desiredIndex >=0){
+        if (desiredIndex >= arrayLength){
+          report_fatal_error(stringFormat("Wrong assignment to index %d while array has length %d! Aborting...", desiredIndex, arrayLength), false);
+        } else {
+          LLVM_DEBUG({dbgs() << "GEP instruction uses the correct bounds [DONE]\n"; });
+        }
       } else { 
-        // TODO - unable to perform the analysis (more info needed)
+        LLVM_DEBUG({dbgs() << "BoundsCheck has NOT been able to analyse this instruction [!!!!]\n"; });
       }
 
       LLVM_DEBUG({dbgs() << "\n"; });
@@ -112,9 +120,24 @@ private:
     F->setCallingConv(CallingConv::C);
     return F;
   }
+
+  /// Function responsible create a string using a pattern format 
+  /// specified together with a number of arguments. 
+  /// source: http://www.martinbroadhurst.com/string-formatting-in-c.html
+  std::string stringFormat(const std::string & format, ...){
+    va_list args;
+    va_start (args, format);
+    size_t len = std::vsnprintf(NULL, 0, format.c_str(), args);
+    va_end (args);
+    std::vector<char> vec(len + 1);
+    va_start (args, format);
+    std::vsnprintf(&vec[0], len + 1, format.c_str(), args);
+    va_end (args);
+    return &vec[0];
+  }
 };
 }
 
 char BoundsCheck::ID = 0;
 static RegisterPass<BoundsCheck> X("bounds-check",
-                                   "Bounds Checking Pass", false, false);
+                                   "BoundsCheck LLVM Pass", false, false);
