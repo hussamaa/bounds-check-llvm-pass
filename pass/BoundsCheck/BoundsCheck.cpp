@@ -16,6 +16,13 @@
 
 using namespace llvm;
 
+bool forceRuntimeChecks; 
+static cl::opt<bool, true>
+Debug("force-runtime-checks", cl::desc("Force runtime checks and ignore at compilation time"), cl::Hidden, cl::location(forceRuntimeChecks));
+
+#define retrieved_correct_data(arrayLength, desiredIndex) ((arrayLength) >=0 && (desiredIndex) >=0)
+#define has_compilation_time_violation(arrayLength, desiredIndex) (retrieved_correct_data((arrayLength),(arrayLength)) && ((desiredIndex) >= (arrayLength)))
+
 namespace {
 struct BoundsCheck : public FunctionPass {
 private:
@@ -55,6 +62,8 @@ public:
       }
     }
 
+    LLVM_DEBUG(dbgs() << "Forcing runtime checks (and ignoring at compilation time): " << forceRuntimeChecks << "\n");
+
     // Process any GEP instructions
     bool changed = false;
     for (auto *GEP : WorkList) {
@@ -62,33 +71,35 @@ public:
       auto arrayLength = -1;
       auto desiredIndex = -1;
 
-      // retrieve the number of elements in the array
-      if (auto *pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
-        if (auto *arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())){
-          arrayLength = arrayElementType->getArrayNumElements();
-          LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
-        }
-        // XXX check the behaviour for dynamic alocated structures, matrices and so on (later)
-      }
-
-      // check if the index to be assigned is a constant and retrieve the index 
-      if (GEP->hasAllConstantIndices()){
-        LLVM_DEBUG({dbgs() << "GEP is composed of constant indices only\n"; });
-        auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()));
+      // Check if the index to be assigned is a constant and retrieve the index 
+      if (auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()))) {
         desiredIndex = constantInt->getZExtValue();
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
+      } else {
+        LLVM_DEBUG({dbgs() << "GEP does not contain the index to be assigned"; });
       }
 
-      // check if both components (array size and desired index) were retrived from the byte code and make the analysis 
-      if (arrayLength >=0 && desiredIndex >=0){
-        if (desiredIndex >= arrayLength){
-          report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
+      // Retrieve the number of elements in the array
+      if (auto *pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
+        if (auto *arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())) {
+          arrayLength = arrayElementType->getArrayNumElements();
+          LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
         } else {
-          LLVM_DEBUG({dbgs() << "GEP instruction uses the correct bounds [DONE]\n"; });
+          LLVM_DEBUG({dbgs() << "GEP does not contain the array length, try it at runtime\n"; });
+          forceRuntimeChecks = true;
         }
-      } else { 
+      } 
+
+      // Perform the check (runtime - with code instrumentation or at compilation time)
+      if (forceRuntimeChecks) {
+        //TODO
+      } else if (has_compilation_time_violation(arrayLength, desiredIndex)) {
+        report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
+      } else if (retrieved_correct_data(arrayLength, desiredIndex)) {
+        LLVM_DEBUG({dbgs() << "GEP instruction uses the correct bounds [DONE]\n"; });
+      } else {
         LLVM_DEBUG({dbgs() << "BoundsCheck has NOT been able to analyse this instruction [!!!!]\n"; });
-      }
+      }   
 
       LLVM_DEBUG({dbgs() << "\n"; });
     }
