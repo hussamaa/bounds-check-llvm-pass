@@ -26,7 +26,7 @@ Debug("force-runtime-checks", cl::desc("Force runtime checks and ignore at compi
 namespace {
 struct BoundsCheck : public FunctionPass {
 private:
-  Function *Assert = nullptr;
+  Function *assertFunction = nullptr;
 
 public:
   static char ID;
@@ -48,8 +48,8 @@ public:
     //m_dl = F.getParent().getDataLayout();
 
     // Instantiate the assert function once per module
-    if (Assert == nullptr || Assert->getParent() != F.getParent())
-      Assert = getAssertFunction(F.getParent());
+    if (assertFunction == nullptr || assertFunction->getParent() != F.getParent())
+      assertFunction = getAssertFunction(F.getParent());
 
     // Find all GEP instructions
     // NOTE: we need to do this first, because the iterators get invalidated
@@ -85,25 +85,61 @@ public:
           arrayLength = arrayElementType->getArrayNumElements();
           LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
         } else {
-          LLVM_DEBUG({dbgs() << "GEP does not contain the array length, try it at runtime\n"; });
+          LLVM_DEBUG({dbgs() << "GEP does not contain the array length, including runtime checks...\n"; });
           forceRuntimeChecks = true;
         }
       } 
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
       if (forceRuntimeChecks) {
-        builder.SetInsertPoint(GEP);
         
-        std::cout << "creating constants" << std::endl;
-        ConstantInt* v1  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 1, /*bool*/true));
-        ConstantInt* v2  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
-        std::cout << "creating control flow" << std::endl;        
+        builder.SetInsertPoint(GEP);
+        BasicBlock* contBlock = BasicBlock::Create(GEP->getContext(), "cont", NULL); 
+               
+        //std::cout << "creating constants" << std::endl;
+        ConstantInt* dynamicIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 3, /*bool*/true));
+        ConstantInt* dynamicArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
+        //std::cout << "creating control flow" << std::endl;  
+
+        /* create trap block */
+        BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", assertFunction);
+        builder.SetInsertPoint(trapBlock);
+        Value* assertionMessage = builder.CreateGlobalStringPtr("a bound violation has been found");
+        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c"); //FIXME
+        ConstantInt* lineNumber  = ConstantInt::get(F.getContext(), llvm::APInt(32, 1, true)); //FIXME
+        Value* assertFunctionArguments[3];
+        assertFunctionArguments[0] = assertionMessage; /* assertion message */
+        assertFunctionArguments[1] = fileName; /* file name */
+        assertFunctionArguments[2] = lineNumber; /* line number */
+        builder.CreateCall(assertFunction, assertFunctionArguments);
+        builder.CreateUnreachable();
+
+        builder.SetInsertPoint(GEP);
+        Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicIndex, dynamicArrayLength, "bound-check");
+        builder.CreateCondBr(xGreaterEqualThan, trapBlock, GEP->getParent());
+        
+
+
+
+#if 0
         Value* xGreaterEqualThan = builder.CreateICmpUGE(v1, v2, "tmp");
+        builder.SetInsertPoint(xGreaterEqualThan);        
+
         std::cout << "retrieving assert function" << std::endl;        
-        //Value* assertFunctionCall = builder.CreateCall(getAssertFunction(GEP->getModule()), NULL, NULL, NULL);
+
+        Value* assertionMessage = builder.CreateGlobalStringPtr("a bound violation has been found");
+        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c"); //FIXME
+        Value* assertFunctionArguments[3];
+        assertFunctionArguments[0] = assertionMessage; /* assertion message */
+        assertFunctionArguments[1] = fileName; /* file name */
+        assertFunctionArguments[2] = v1; /* line number */
+
+        Value* assertFunctionCall = builder.CreateCall(assertFunction, assertFunctionArguments);
+        
         std::cout << "creating creating branch" << std::endl;
-        BasicBlock* conditionTrue = BasicBlock::Create(GEP->getContext(), "cond_true", NULL);
-        builder.CreateCondBr(xGreaterEqualThan, conditionTrue, conditionTrue);
+  #endif 
+     //   BasicBlock* conditionTrue = BasicBlock::Create(GEP->getContext(), "cond_true", NULL);
+      //  builder.CreateCondBr(xGreaterEqualThan, conditionTrue, conditionTrue);
         changed = true;
 
         //TODO
@@ -117,6 +153,8 @@ public:
 
       LLVM_DEBUG({dbgs() << "\n"; });
     }
+
+    F.dump();
 
     return changed;
   }
