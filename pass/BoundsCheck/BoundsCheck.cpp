@@ -38,7 +38,7 @@ public:
   /// The returned boolean should be `true` if the function was modified,
   /// `false` if it wasn't.
   bool runOnFunction(Function &F) override {
-    IRBuilder<> Builder(F.getContext());
+    IRBuilder<> builder(F.getContext());
 
     LLVM_DEBUG({
       dbgs() << "BoundsCheck: processing function '";
@@ -66,13 +66,13 @@ public:
 
     // Process any GEP instructions
     bool changed = false;
-    for (auto *GEP : WorkList) {
+    for (auto* GEP : WorkList) {
       LLVM_DEBUG(dbgs() << "\nGEP instruction: " << *GEP << "\n");
       auto arrayLength = -1;
       auto desiredIndex = -1;
 
       // Check if the index to be assigned is a constant and retrieve the index 
-      if (auto *constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()))) {
+      if (auto* constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()))) {
         desiredIndex = constantInt->getZExtValue();
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       } else {
@@ -80,8 +80,8 @@ public:
       }
 
       // Retrieve the number of elements in the array
-      if (auto *pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
-        if (auto *arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())) {
+      if (auto* pointerOperandType = dyn_cast<PointerType>(GEP->getPointerOperandType())){
+        if (auto* arrayElementType = dyn_cast<ArrayType>(pointerOperandType->getPointerElementType())) {
           arrayLength = arrayElementType->getArrayNumElements();
           LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
         } else {
@@ -92,6 +92,20 @@ public:
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
       if (forceRuntimeChecks) {
+        builder.SetInsertPoint(GEP);
+        
+        std::cout << "creating constants" << std::endl;
+        ConstantInt* v1  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 1, /*bool*/true));
+        ConstantInt* v2  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
+        std::cout << "creating control flow" << std::endl;        
+        Value* xGreaterEqualThan = builder.CreateICmpUGE(v1, v2, "tmp");
+        std::cout << "retrieving assert function" << std::endl;        
+        //Value* assertFunctionCall = builder.CreateCall(getAssertFunction(GEP->getModule()), NULL, NULL, NULL);
+        std::cout << "creating creating branch" << std::endl;
+        BasicBlock* conditionTrue = BasicBlock::Create(GEP->getContext(), "cond_true", NULL);
+        builder.CreateCondBr(xGreaterEqualThan, conditionTrue, conditionTrue);
+        changed = true;
+
         //TODO
       } else if (has_compilation_time_violation(arrayLength, desiredIndex)) {
         report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
