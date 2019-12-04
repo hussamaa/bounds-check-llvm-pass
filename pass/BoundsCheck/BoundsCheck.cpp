@@ -19,10 +19,11 @@ using namespace llvm;
 
 bool forceRuntimeChecks; 
 static cl::opt<bool, true>
-Debug("force-runtime-checks", cl::desc("Force runtime checks and ignore at compilation time"), cl::Hidden, cl::location(forceRuntimeChecks));
+paramRunTimeChecks("force-runtime-checks", cl::desc("Force runtime checks and ignore at compilation time"), cl::Hidden, cl::location(forceRuntimeChecks));
 
 bool showByteCode; 
-static cl::opt<bool, true> Debug2("show-byte-code", cl::desc("Show LLVM byte code for every function"), cl::Hidden, cl::location(showByteCode));
+static cl::opt<bool, true> 
+paramShowByteCode("show-byte-code", cl::desc("Show LLVM byte code for every function"), cl::Hidden, cl::location(showByteCode));
 
 #define retrieved_correct_data(arrayLength, desiredIndex) ((arrayLength) >=0 && (desiredIndex) >=0)
 #define has_compilation_time_violation(arrayLength, desiredIndex) (retrieved_correct_data((arrayLength),(arrayLength)) && ((desiredIndex) >= (arrayLength)))
@@ -93,28 +94,29 @@ public:
       } 
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
-      if (forceRuntimeChecks) {
+      if (forceRuntimeChecks) { 
         
+        // FIXME - limitation for malloc instructions. To be done.
+        if (!retrieved_correct_data(arrayLength, desiredIndex)){
+          LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers. Trying next instruction...\n"; });
+          continue;
+        }
+
         // Based on llvm::SplitBlockAndInsertIfThenElse code.  
         BasicBlock* beforeGEP = GEP->getParent();
         // Creating cont block
         BasicBlock* afterGEP = beforeGEP->splitBasicBlock(GEP->getIterator(), "cont");
 
-        // size of a pointer in runtime .... (not working yet)
-        //DataLayout dl = F.getParent()->getDataLayout();
-        //uint64_t size = dl.getTypeAllocSize(GEP->getPointerOperandType()); 
-        //std::cout << "size in bytes: " <<  size << std::endl;
-
         // Retrieving the index and array length dynamically - TBD 
-        ConstantInt* dynamicIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 3, /*bool*/true));
-        ConstantInt* dynamicArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
+        ConstantInt* dynamicDesiredIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, desiredIndex, /*bool*/true));
+        ConstantInt* dynamicDesiredArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, arrayLength, /*bool*/true));
 
         // Create trap block
         BasicBlock* trapBlock = createTrapBlock(builder, GEP, F, "fakefile.c", 33); //XXX retrive correct file name and line number
 
         // Inserting branching with comparison
         builder.SetInsertPoint(beforeGEP);
-        Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicIndex, dynamicArrayLength, "bound-check");
+        Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicDesiredIndex, dynamicDesiredArrayLength, "bound-check");
         BranchInst* beforeGEPNewTerminator = BranchInst::Create(trapBlock, afterGEP, xGreaterEqualThan);
         ReplaceInstWithInst(beforeGEP->getTerminator(), beforeGEPNewTerminator);
 
@@ -162,9 +164,10 @@ private:
     return F;
   }
 
-  /// Function that creates a trap block for
-  ///
+  /// Function that creates a trap block for a given GEP instruction.
   /// 
+  /// A trap block contains a call to ABI assert function which displays
+  /// the file name and line number in which the violation occurred. 
   BasicBlock* createTrapBlock(IRBuilder<> builder, GetElementPtrInst* GEP, Function &F, std::string fileName, uint32_t lineNumber) {
     LLVM_DEBUG({dbgs() << "Creating trap block for instruction in file: " << fileName << " line: " << lineNumber << "\n"; });
     BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", &F);
@@ -183,6 +186,7 @@ private:
 
   /// Function responsible create a string using a pattern format 
   /// specified together with a number of arguments. 
+  ///
   /// source: http://www.martinbroadhurst.com/string-formatting-in-c.html
   std::string stringFormat(const std::string & format, ...){
     va_list args;
