@@ -14,6 +14,9 @@
 #include <cstring>
 
 #define DEBUG_TYPE "mine"
+#define INITIAL_VALUE 0xCAFECAFE
+#define IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex) ((arrayLength) != INITIAL_VALUE && (desiredIndex) != INITIAL_VALUE)
+#define HAS_COMPILATION_TIME_VIOLATION(arrayLength, desiredIndex) (IS_DATA_CORRECTLY_EXTRACTED((arrayLength),(arrayLength)) && ((desiredIndex) >= (arrayLength)))
 
 using namespace llvm;
 
@@ -24,9 +27,6 @@ paramRunTimeChecks("force-runtime-checks", cl::desc("Force runtime checks and ig
 bool showByteCode; 
 static cl::opt<bool, true> 
 paramShowByteCode("show-byte-code", cl::desc("Show LLVM byte code for every function"), cl::Hidden, cl::location(showByteCode));
-
-#define retrieved_correct_data(arrayLength, desiredIndex) ((arrayLength) >=0 && (desiredIndex) >=0)
-#define has_compilation_time_violation(arrayLength, desiredIndex) (retrieved_correct_data((arrayLength),(arrayLength)) && ((desiredIndex) >= (arrayLength)))
 
 namespace {
 struct BoundsCheck : public FunctionPass {
@@ -71,8 +71,8 @@ public:
     bool changed = false;
     for (auto* GEP : WorkList) {
       LLVM_DEBUG(dbgs() << "\nGEP instruction: " << *GEP << "\n");
-      auto arrayLength = -1;
-      auto desiredIndex = -1;
+      auto arrayLength = INITIAL_VALUE;
+      auto desiredIndex = INITIAL_VALUE;
 
       // Check if the index to be assigned is a constant and retrieve the index 
       if (auto* constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()))) {
@@ -94,10 +94,9 @@ public:
       } 
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
-      if (forceRuntimeChecks) { 
-        
+      if (forceRuntimeChecks) {   
         // FIXME - limitation for malloc instructions. To be done.
-        if (!retrieved_correct_data(arrayLength, desiredIndex)){
+        if (!IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex)){
           LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers. Trying next instruction...\n"; });
           continue;
         }
@@ -121,9 +120,9 @@ public:
         ReplaceInstWithInst(beforeGEP->getTerminator(), beforeGEPNewTerminator);
 
         changed = true;
-      } else if (has_compilation_time_violation(arrayLength, desiredIndex)) {
+      } else if (HAS_COMPILATION_TIME_VIOLATION(arrayLength, desiredIndex)) {
         report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
-      } else if (retrieved_correct_data(arrayLength, desiredIndex)) {
+      } else if (IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex)) {
         LLVM_DEBUG({dbgs() << "GEP instruction uses the correct bounds [DONE]\n"; });
       } else {
         LLVM_DEBUG({dbgs() << "BoundsCheck has NOT been able to analyse this instruction [!!!!]\n"; });
