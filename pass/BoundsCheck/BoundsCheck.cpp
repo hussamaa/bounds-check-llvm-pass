@@ -28,6 +28,10 @@ bool showByteCode;
 static cl::opt<bool, true> 
 paramShowByteCode("show-byte-code", cl::desc("Show LLVM byte code for every function"), cl::Hidden, cl::location(showByteCode));
 
+bool optimize; 
+static cl::opt<bool, true> 
+paraOptimize("optimize", cl::desc("Applies some optimizations in the bc to decrease the overhead"), cl::Hidden, cl::location(optimize));
+
 namespace {
 struct BoundsCheck : public FunctionPass {
 private:
