@@ -69,7 +69,9 @@ public:
 
     // Process any GEP instructions
     bool changed = false;
+    bool checkInstructionInRuntime = forceRuntimeChecks;
     for (auto* GEP : WorkList) {
+     
       LLVM_DEBUG(dbgs() << "\nGEP instruction: " << *GEP << "\n");
       auto arrayLength = INITIAL_VALUE;
       auto desiredIndex = INITIAL_VALUE;
@@ -80,7 +82,7 @@ public:
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       } else {
         LLVM_DEBUG({dbgs() << "GEP does not contain the index to be assigned, including runtime checks...\n"; });
-         forceRuntimeChecks = true;
+         checkInstructionInRuntime = true;
       }
 
       // Retrieve the number of elements in the array
@@ -90,17 +92,17 @@ public:
           LLVM_DEBUG({dbgs() << "GEP array has length: " << arrayLength << "\n"; });
         } else {
           LLVM_DEBUG({dbgs() << "GEP does not contain the array length, including runtime checks...\n"; });
-          forceRuntimeChecks = true;
+          checkInstructionInRuntime = true;
         }
       } 
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
-      if (forceRuntimeChecks) {     
-        // FIXME - limitation for malloc instructions. To be done.
+      if (checkInstructionInRuntime) {     
+        //FIXME - limitation for malloc instructions and dynamic indexes. To be done...
         if (!IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex)){
           LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers / indexes. Trying next instruction...\n"; });
           continue;
-        }
+       }
 
         // Based on llvm::SplitBlockAndInsertIfThenElse code.  
         BasicBlock* beforeGEP = GEP->getParent();
@@ -112,7 +114,7 @@ public:
         ConstantInt* dynamicDesiredArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, arrayLength, /*bool*/true));
 
         // Create trap block
-        BasicBlock* trapBlock = createTrapBlock(builder, GEP, F, "fakefile.c", 33); //XXX retrive correct file name and line number
+        BasicBlock* trapBlock = createTrapBlock(builder, GEP, F);
 
         // Inserting branching with comparison
         builder.SetInsertPoint(beforeGEP);
@@ -130,6 +132,7 @@ public:
       }   
 
       LLVM_DEBUG({dbgs() << "\n"; });
+      checkInstructionInRuntime = forceRuntimeChecks;
     }
 
     if (showByteCode) {
@@ -168,7 +171,15 @@ private:
   /// 
   /// A trap block contains a call to ABI assert function which displays
   /// the file name and line number in which the violation occurred. 
-  BasicBlock* createTrapBlock(IRBuilder<> builder, GetElementPtrInst* GEP, Function &F, std::string fileName, uint32_t lineNumber) {
+  BasicBlock* createTrapBlock(IRBuilder<> builder, GetElementPtrInst* GEP, Function &F) {
+    // It seems the debug information is not always available 
+    // TODO check if there is a more consistent way. 
+    std::string fileName = "-"; auto lineNumber = 0;
+    const DebugLoc &debugLocation = GEP->getDebugLoc();
+    if (debugLocation) {
+      fileName = debugLocation->getFilename();
+      lineNumber = debugLocation->getLine();
+    }
     LLVM_DEBUG({dbgs() << "Creating trap block for instruction in file: " << fileName << " line: " << lineNumber << "\n"; });
     BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", &F);
     builder.SetInsertPoint(trapBlock);
