@@ -1,7 +1,7 @@
 #define N 10
-int list[N] = {1,8,4,6,0,3,5,2,7,9};
 
-void bubbleSort() {
+int main() {
+   int list[N] = {1,8,4,6,0,3,5,2,7,9};
    int temp;
    int i,j;
    for(i = 0; i < N-1; i++) { 
@@ -13,9 +13,5 @@ void bubbleSort() {
          } 
       }
    }
-}
-
-int main() {
-   bubbleSort();
    return 0;
 }

@@ -79,7 +79,8 @@ public:
         desiredIndex = constantInt->getZExtValue();
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       } else {
-        LLVM_DEBUG({dbgs() << "GEP does not contain the index to be assigned"; });
+        LLVM_DEBUG({dbgs() << "GEP does not contain the index to be assigned, including runtime checks...\n"; });
+         forceRuntimeChecks = true;
       }
 
       // Retrieve the number of elements in the array
@@ -94,10 +95,10 @@ public:
       } 
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
-      if (forceRuntimeChecks) {   
+      if (forceRuntimeChecks) {     
         // FIXME - limitation for malloc instructions. To be done.
         if (!IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex)){
-          LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers. Trying next instruction...\n"; });
+          LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers / indexes. Trying next instruction...\n"; });
           continue;
         }
 
