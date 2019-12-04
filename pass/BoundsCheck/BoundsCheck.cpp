@@ -4,6 +4,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Pass.h>
 #include <llvm/Support/Debug.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
 #include <iostream>
 #include <list>
@@ -93,56 +94,35 @@ public:
       // Perform the check (runtime - with code instrumentation or at compilation time)
       if (forceRuntimeChecks) {
         
-        builder.SetInsertPoint(GEP);
-        BasicBlock* contBlock = BasicBlock::Create(GEP->getContext(), "cont", NULL); 
-               
-        //std::cout << "creating constants" << std::endl;
+        // Based on llvm::SplitBlockAndInsertIfThenElse code.  
+        BasicBlock* beforeGEP = GEP->getParent();
+        // Creating cont block
+        BasicBlock* afterGEP = beforeGEP->splitBasicBlock(GEP->getIterator(), "cont");
+
+        //* Retrieving the index and array length dynamically - TBD 
         ConstantInt* dynamicIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 3, /*bool*/true));
         ConstantInt* dynamicArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
-        //std::cout << "creating control flow" << std::endl;  
 
-        /* create trap block */
-        BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", assertFunction);
+        // Create trap block (put it into a private function) 
+        BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", &F);
         builder.SetInsertPoint(trapBlock);
         Value* assertionMessage = builder.CreateGlobalStringPtr("a bound violation has been found");
-        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c"); //FIXME
+        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c");                         //FIXME
         ConstantInt* lineNumber  = ConstantInt::get(F.getContext(), llvm::APInt(32, 1, true)); //FIXME
         Value* assertFunctionArguments[3];
         assertFunctionArguments[0] = assertionMessage; /* assertion message */
-        assertFunctionArguments[1] = fileName; /* file name */
-        assertFunctionArguments[2] = lineNumber; /* line number */
+        assertFunctionArguments[1] = fileName;         /* file name */
+        assertFunctionArguments[2] = lineNumber;       /* line number */
         builder.CreateCall(assertFunction, assertFunctionArguments);
         builder.CreateUnreachable();
 
-        builder.SetInsertPoint(GEP);
+        // Inserting branching with comparison //
+        builder.SetInsertPoint(beforeGEP);
         Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicIndex, dynamicArrayLength, "bound-check");
-        builder.CreateCondBr(xGreaterEqualThan, trapBlock, GEP->getParent());
-        
+        BranchInst* beforeGEPNewTerminator = BranchInst::Create(trapBlock, afterGEP, xGreaterEqualThan);
+        ReplaceInstWithInst(beforeGEP->getTerminator(), beforeGEPNewTerminator);
 
-
-
-#if 0
-        Value* xGreaterEqualThan = builder.CreateICmpUGE(v1, v2, "tmp");
-        builder.SetInsertPoint(xGreaterEqualThan);        
-
-        std::cout << "retrieving assert function" << std::endl;        
-
-        Value* assertionMessage = builder.CreateGlobalStringPtr("a bound violation has been found");
-        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c"); //FIXME
-        Value* assertFunctionArguments[3];
-        assertFunctionArguments[0] = assertionMessage; /* assertion message */
-        assertFunctionArguments[1] = fileName; /* file name */
-        assertFunctionArguments[2] = v1; /* line number */
-
-        Value* assertFunctionCall = builder.CreateCall(assertFunction, assertFunctionArguments);
-        
-        std::cout << "creating creating branch" << std::endl;
-  #endif 
-     //   BasicBlock* conditionTrue = BasicBlock::Create(GEP->getContext(), "cond_true", NULL);
-      //  builder.CreateCondBr(xGreaterEqualThan, conditionTrue, conditionTrue);
         changed = true;
-
-        //TODO
       } else if (has_compilation_time_violation(arrayLength, desiredIndex)) {
         report_fatal_error(stringFormat("Wrong assignment to index %d (zero-based) while array has length %d! Aborting...", desiredIndex, arrayLength), false);
       } else if (retrieved_correct_data(arrayLength, desiredIndex)) {
