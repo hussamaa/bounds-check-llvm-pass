@@ -21,6 +21,9 @@ bool forceRuntimeChecks;
 static cl::opt<bool, true>
 Debug("force-runtime-checks", cl::desc("Force runtime checks and ignore at compilation time"), cl::Hidden, cl::location(forceRuntimeChecks));
 
+bool showByteCode; 
+static cl::opt<bool, true> Debug2("show-byte-code", cl::desc("Show LLVM byte code for every function"), cl::Hidden, cl::location(showByteCode));
+
 #define retrieved_correct_data(arrayLength, desiredIndex) ((arrayLength) >=0 && (desiredIndex) >=0)
 #define has_compilation_time_violation(arrayLength, desiredIndex) (retrieved_correct_data((arrayLength),(arrayLength)) && ((desiredIndex) >= (arrayLength)))
 
@@ -45,8 +48,6 @@ public:
       dbgs() << "BoundsCheck: processing function '";
       dbgs().write_escaped(F.getName()) << "'\n";
     });
-
-    //m_dl = F.getParent().getDataLayout();
 
     // Instantiate the assert function once per module
     if (assertFunction == nullptr || assertFunction->getParent() != F.getParent())
@@ -99,24 +100,19 @@ public:
         // Creating cont block
         BasicBlock* afterGEP = beforeGEP->splitBasicBlock(GEP->getIterator(), "cont");
 
-        //* Retrieving the index and array length dynamically - TBD 
+        // size of a pointer in runtime .... (not working yet)
+        //DataLayout dl = F.getParent()->getDataLayout();
+        //uint64_t size = dl.getTypeAllocSize(GEP->getPointerOperandType()); 
+        //std::cout << "size in bytes: " <<  size << std::endl;
+
+        // Retrieving the index and array length dynamically - TBD 
         ConstantInt* dynamicIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 3, /*bool*/true));
         ConstantInt* dynamicArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, 2, /*bool*/true));
 
-        // Create trap block (put it into a private function) 
-        BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", &F);
-        builder.SetInsertPoint(trapBlock);
-        Value* assertionMessage = builder.CreateGlobalStringPtr("a bound violation has been found");
-        Value* fileName = builder.CreateGlobalStringPtr("fakeFile.c");                         //FIXME
-        ConstantInt* lineNumber  = ConstantInt::get(F.getContext(), llvm::APInt(32, 1, true)); //FIXME
-        Value* assertFunctionArguments[3];
-        assertFunctionArguments[0] = assertionMessage; /* assertion message */
-        assertFunctionArguments[1] = fileName;         /* file name */
-        assertFunctionArguments[2] = lineNumber;       /* line number */
-        builder.CreateCall(assertFunction, assertFunctionArguments);
-        builder.CreateUnreachable();
+        // Create trap block
+        BasicBlock* trapBlock = createTrapBlock(builder, GEP, F, "fakefile.c", 33); //XXX retrive correct file name and line number
 
-        // Inserting branching with comparison //
+        // Inserting branching with comparison
         builder.SetInsertPoint(beforeGEP);
         Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicIndex, dynamicArrayLength, "bound-check");
         BranchInst* beforeGEPNewTerminator = BranchInst::Create(trapBlock, afterGEP, xGreaterEqualThan);
@@ -134,7 +130,9 @@ public:
       LLVM_DEBUG({dbgs() << "\n"; });
     }
 
-    F.dump();
+    if (showByteCode) {
+      F.dump();
+    }
 
     return changed;
   }
@@ -162,6 +160,25 @@ private:
     F->addFnAttr(Attribute::NoReturn);
     F->setCallingConv(CallingConv::C);
     return F;
+  }
+
+  /// Function that creates a trap block for
+  ///
+  /// 
+  BasicBlock* createTrapBlock(IRBuilder<> builder, GetElementPtrInst* GEP, Function &F, std::string fileName, uint32_t lineNumber) {
+    LLVM_DEBUG({dbgs() << "Creating trap block for instruction in file: " << fileName << " line: " << lineNumber << "\n"; });
+    BasicBlock* trapBlock = BasicBlock::Create(GEP->getContext(), "trap", &F);
+    builder.SetInsertPoint(trapBlock);
+    Value* assertionMessage = builder.CreateGlobalStringPtr("a violation has been found");
+    Value* fileNameValue = builder.CreateGlobalStringPtr(fileName);                             
+    ConstantInt* lineNumberConst  = ConstantInt::get(F.getContext(), llvm::APInt(32, lineNumber, true));
+    Value* assertFunctionArguments[3];
+    assertFunctionArguments[0] = assertionMessage; /* assertion message */
+    assertFunctionArguments[1] = fileNameValue;    /* file name         */
+    assertFunctionArguments[2] = lineNumberConst;  /* line number       */
+    builder.CreateCall(assertFunction, assertFunctionArguments);
+    builder.CreateUnreachable();
+    return trapBlock;
   }
 
   /// Function responsible create a string using a pattern format 
