@@ -80,8 +80,9 @@ public:
       auto arrayLength = INITIAL_VALUE;
       auto desiredIndex = INITIAL_VALUE;
 
+      Value* indexOperand = GEP->getOperand(GEP->getNumIndices());
       // Check if the index to be assigned is a constant and retrieve the index 
-      if (auto* constantInt = dyn_cast<ConstantInt>(GEP->getOperand(GEP->getNumIndices()))) {
+      if (auto* constantInt = dyn_cast<ConstantInt>(indexOperand)) {
         desiredIndex = constantInt->getZExtValue();
         LLVM_DEBUG({dbgs() << "GEP tries to assign to index: " << desiredIndex << "\n"; });
       } else {
@@ -102,29 +103,29 @@ public:
 
       // Perform the check (runtime - with code instrumentation or at compilation time)
       if (checkInstructionInRuntime) {     
-        //FIXME - limitation for malloc instructions and dynamic indexes. To be done...
-        if (!IS_DATA_CORRECTLY_EXTRACTED(arrayLength, desiredIndex)){
-          LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers / indexes. Trying next instruction...\n"; });
+        //FIXME - limitation for malloc instructions... To be done!
+        if (arrayLength == INITIAL_VALUE){
+          LLVM_DEBUG({dbgs() << "I'm sorry. I'm still not able to instrument dynamic allocated pointers. Trying next instruction...\n"; });
           continue;
-       }
+        }
 
         // Based on llvm::SplitBlockAndInsertIfThenElse code.  
         BasicBlock* beforeGEP = GEP->getParent();
+
         // Creating cont block
         BasicBlock* afterGEP = beforeGEP->splitBasicBlock(GEP->getIterator(), "cont");
+        beforeGEP->getTerminator()->eraseFromParent();
 
         // Retrieving the index and array length dynamically - TBD 
-        ConstantInt* dynamicDesiredIndex  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, desiredIndex, /*bool*/true));
-        ConstantInt* dynamicDesiredArrayLength  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/32, arrayLength, /*bool*/true));
+        ConstantInt* desiredArrayLengthConstantInt  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/64, arrayLength, /*bool*/true));
 
         // Create trap block
         BasicBlock* trapBlock = createTrapBlock(builder, GEP, F);
 
         // Inserting branching with comparison
         builder.SetInsertPoint(beforeGEP);
-        Value* xGreaterEqualThan = builder.CreateICmpUGE(dynamicDesiredIndex, dynamicDesiredArrayLength, "bound-check");
-        BranchInst* beforeGEPNewTerminator = BranchInst::Create(trapBlock, afterGEP, xGreaterEqualThan);
-        ReplaceInstWithInst(beforeGEP->getTerminator(), beforeGEPNewTerminator);
+        Value* xGreaterEqualThan = builder.CreateICmpSGE(indexOperand, desiredArrayLengthConstantInt, "bound-check");
+        builder.CreateCondBr(xGreaterEqualThan, trapBlock, afterGEP);
 
         changed = true;
       } else if (HAS_COMPILATION_TIME_VIOLATION(arrayLength, desiredIndex)) {
