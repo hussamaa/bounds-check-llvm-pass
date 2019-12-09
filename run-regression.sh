@@ -26,17 +26,20 @@ for tc in $TEST_FILES; do
   fi  
   echo -n "$tc (with runtime check)"
   $($OPT_PASS_COMMAND $BYTECODE_FOLDER/$tc.bc --force-runtime-checks -o $BYTECODE_FOLDER/$tc.ll > /dev/null 2> /dev/null)
-  $(llc -march=x86-64 -relocation-model=pic $BYTECODE_FOLDER/$tc.ll -o $BYTECODE_FOLDER/$tc.s)
+  $(llc -march=x86-64 -relocation-model=pic $BYTECODE_FOLDER/$tc.ll -o $BYTECODE_FOLDER/$tc.s)  
   $(gcc $BYTECODE_FOLDER/$tc.s -o $BYTECODE_FOLDER/$tc.exe)
-  ./$BYTECODE_FOLDER/$tc.exe > /dev/null 2> /dev/null
+  initial_time=$(date +%s)
+  ./$BYTECODE_FOLDER/$tc.exe > /dev/null 2> /dev/null  
   runtime_error_level=$?
+  final_time=$(date +%s)
+  execution_time=$((final_time - initial_time))
   if [ $is_fail -eq 0 ] && [ $runtime_error_level -eq 0 ]; then
-    echo " [OK]"
+    echo " [OK] in $execution_time seconds"
   elif [ $is_fail -eq 1 ] && [ $runtime_error_level -eq 134 ]; then
-    echo " [OK]"
+    echo " [OK] in $execution_time seconds"
   else
     echo " [FAIL]"
-  fi  
+  fi
 done
 
 echo " "
