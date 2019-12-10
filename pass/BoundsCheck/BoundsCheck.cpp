@@ -116,7 +116,7 @@ public:
         BasicBlock* afterGEP = beforeGEP->splitBasicBlock(GEP->getIterator(), "cont");
         beforeGEP->getTerminator()->eraseFromParent();
 
-        // Retrieving the index and array length dynamically - TBD 
+        // Retrieving the array length dynamically - TBD 
         ConstantInt* desiredArrayLengthConstantInt  = ConstantInt::get(F.getContext(), llvm::APInt(/*nbits*/64, arrayLength, /*bool*/true));
 
         // Create trap block
@@ -124,7 +124,7 @@ public:
 
         // Inserting branching with comparison
         builder.SetInsertPoint(beforeGEP);
-        Value* xGreaterEqualThan = builder.CreateICmpSGE(indexOperand, desiredArrayLengthConstantInt, "bound-check");
+        Value* xGreaterEqualThan = builder.CreateICmpUGE(indexOperand, desiredArrayLengthConstantInt, "bound-check");
         builder.CreateCondBr(xGreaterEqualThan, trapBlock, afterGEP);
 
         changed = true;

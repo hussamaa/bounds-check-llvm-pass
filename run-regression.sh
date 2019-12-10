@@ -21,10 +21,9 @@ for tc in $TEST_FILES; do
   pass_error_level=$?
   if [ $is_fail -eq $pass_error_level ]; then
     echo " [OK]"
-  else
-    echo " [FAIL]"
-  fi  
-  echo -n "$tc (with runtime check)"
+    continue;
+  fi
+  echo -n " (with runtime checks)"
   $($OPT_PASS_COMMAND $BYTECODE_FOLDER/$tc.bc --force-runtime-checks -o $BYTECODE_FOLDER/$tc.ll > /dev/null 2> /dev/null)
   $(llc -march=x86-64 -relocation-model=pic $BYTECODE_FOLDER/$tc.ll -o $BYTECODE_FOLDER/$tc.s)  
   $(gcc $BYTECODE_FOLDER/$tc.s -o $BYTECODE_FOLDER/$tc.exe)
